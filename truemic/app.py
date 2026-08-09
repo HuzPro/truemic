@@ -58,7 +58,86 @@ def record_with_level(seconds: float, device: int | None) -> np.ndarray:
     return np.concatenate(blocks)[: int(seconds * config.SAMPLE_RATE)]
 
 
+# Linux-preferred backend order: pipewire exposes hardware without aliasing issues
+_LINUX_BACKEND_PREF = ("pipewire", "pulse", "default", "sysdefault")
+# ALSA hw:/plughw: names that alias hardware and deadlock when opened in parallel
+_LINUX_ALIAS_NAMES = frozenset({"sysdefault", "default", "pulse", "pipewire"})
+
+
+def _linux_deduplicate(candidates: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """On Linux, PortAudio exposes the same physical mic under many virtual names
+    (sysdefault, pipewire, pulse, default). Opening them in parallel deadlocks the
+    PipeWire/PulseAudio server lock. Keep only the preferred backend name."""
+    import sys
+    if sys.platform != "linux":
+        return candidates
+    aliases = {n for _, n in candidates if n.lower() in _LINUX_ALIAS_NAMES}
+    if not aliases:
+        return candidates  # real named hw: devices — keep all
+    # Pick just the single best alias
+    chosen_name = next(
+        (n for pref in _LINUX_BACKEND_PREF
+         for _, n in candidates if n.lower() == pref),
+        None,
+    )
+    # Keep non-alias named devices + only the single chosen alias
+    return [
+        (i, n) for i, n in candidates
+        if n.lower() not in _LINUX_ALIAS_NAMES or n == chosen_name
+    ]
+
+
 def api_miccheck() -> list[dict]:
+    """Scan available input devices and score them.
+
+    On Linux every PortAudio ALSA device name (pipewire, pulse, sysdefault,
+    lavrate, …) aliases the same PipeWire/PulseAudio hardware; opening them
+    in parallel deadlocks the server. We instead record once on the PortAudio
+    default (device=None) and present it as the single result.
+    """
+    import sys
+    from scipy.signal import welch
+
+    def _record_device(index, name: str) -> "dict | None":
+        blocks: list[np.ndarray] = []
+
+        def callback(indata, frames, time_info, status):
+            blocks.append(indata[:, 0].copy())
+
+        try:
+            with sd.InputStream(
+                samplerate=config.SAMPLE_RATE, channels=1, dtype="float32",
+                device=index, callback=callback,
+            ):
+                sd.sleep(5000)
+        except Exception:
+            return None
+
+        if not blocks:
+            return None
+        wav = np.concatenate(blocks)
+        rms = float(np.sqrt(np.mean(wav**2)))
+        if rms < 1e-5:
+            return None
+        f, p = welch(wav, config.SAMPLE_RATE, nperseg=2048)
+        high = float(p[f >= 2000].sum() / p.sum())
+        device_index = index if index is not None else int(sd.default.device[0])
+        return {
+            "index": device_index,
+            "name": name,
+            "rms": round(rms, 4),
+            "high": round(high, 3),
+            "good": bool(rms > 0.003 and high > 0.04),
+        }
+
+    if sys.platform == "linux":
+        # On Linux: use the PortAudio default device (routes through PipeWire)
+        default_info = sd.query_devices(kind="input")
+        name = default_info.get("name", "default") if default_info else "default"
+        row = _record_device(None, name)
+        return [row] if row else []
+
+    # Windows / macOS: scan every real physical input device
     from truemic.miccheck import VIRTUAL
 
     candidates, seen = [], set()
@@ -71,51 +150,14 @@ def api_miccheck() -> list[dict]:
         seen.add(name)
         candidates.append((index, name))
 
-    buffers: dict[int, list] = {}
-    streams = []
-    for index, name in candidates:
-        buffers[index] = []
-
-        def callback(indata, frames, time_info, status, idx=index):
-            buffers[idx].append(indata[:, 0].copy())
-
-        try:
-            stream = sd.InputStream(
-                samplerate=config.SAMPLE_RATE, channels=1, dtype="float32",
-                device=index, callback=callback,
-            )
-            stream.start()
-            streams.append(stream)
-        except Exception:
-            buffers.pop(index)
-    sd.sleep(5000)
-    for stream in streams:
-        stream.stop()
-        stream.close()
-
-    from scipy.signal import welch
-
     rows = []
     for index, name in candidates:
-        if index not in buffers or not buffers[index]:
-            continue
-        wav = np.concatenate(buffers[index])
-        rms = float(np.sqrt(np.mean(wav**2)))
-        if rms < 1e-5:
-            continue
-        f, p = welch(wav, config.SAMPLE_RATE, nperseg=2048)
-        high = float(p[f >= 2000].sum() / p.sum())
-        rows.append(
-            {
-                "index": index,
-                "name": name,
-                "rms": round(rms, 4),
-                "high": round(high, 3),
-                "good": bool(rms > 0.015 and high > 0.04),
-            }
-        )
+        row = _record_device(index, name)
+        if row:
+            rows.append(row)
     rows.sort(key=lambda r: (r["good"], r["rms"]), reverse=True)
     return rows
+
 
 
 def api_enroll(name: str) -> dict:

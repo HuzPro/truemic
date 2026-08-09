@@ -13,3 +13,5 @@ cryptography
 psutil
 soundfile
 pytest
+av
+

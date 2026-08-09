@@ -4,6 +4,9 @@ Bandwidth is what speaker verification lives on — an enrollment mic needs
 energy above 2 kHz. Run this on any machine before enrolling.
 """
 
+import sys
+import threading
+
 import numpy as np
 import sounddevice as sd
 from scipy.signal import welch
@@ -12,6 +15,24 @@ from truemic import config
 
 VIRTUAL = ("CABLE", "Voicemeeter", "Steam", "Sound Mapper", "Wave", "Primary Sound")
 SECONDS = 6.0
+
+_LINUX_ALIAS_NAMES = frozenset({"sysdefault", "default", "pulse", "pipewire"})
+_LINUX_BACKEND_PREF = ("pipewire", "pulse", "default", "sysdefault")
+
+
+def _linux_deduplicate(candidates):
+    if sys.platform != "linux":
+        return candidates
+    aliases = {n for _, n in candidates if n.lower() in _LINUX_ALIAS_NAMES}
+    if not aliases:
+        return candidates
+    chosen_name = next(
+        (n for pref in _LINUX_BACKEND_PREF
+         for _, n in candidates if n.lower() == pref),
+        None,
+    )
+    return [(i, n) for i, n in candidates
+            if n.lower() not in _LINUX_ALIAS_NAMES or n == chosen_name]
 
 
 def main() -> None:
@@ -27,6 +48,8 @@ def main() -> None:
         seen.add(name)
         candidates.append((index, name))
 
+    candidates = _linux_deduplicate(candidates)
+
     streams, buffers = [], {}
     for index, name in candidates:
         buffers[index] = []
@@ -34,15 +57,28 @@ def main() -> None:
         def callback(indata, frames, time_info, status, idx=index):
             buffers[idx].append(indata[:, 0].copy())
 
-        try:
-            stream = sd.InputStream(
-                samplerate=config.SAMPLE_RATE, channels=1, dtype="float32",
-                device=index, callback=callback,
-            )
-            stream.start()
-            streams.append(stream)
-        except Exception:
-            buffers.pop(index)
+        opened = threading.Event()
+        error_holder: list = []
+
+        def open_stream(idx=index, cb=callback):
+            try:
+                stream = sd.InputStream(
+                    samplerate=config.SAMPLE_RATE, channels=1, dtype="float32",
+                    device=idx, callback=cb,
+                )
+                stream.start()
+                streams.append(stream)
+            except Exception as e:
+                error_holder.append(e)
+            finally:
+                opened.set()
+
+        threading.Thread(target=open_stream, daemon=True).start()
+        if not opened.wait(timeout=3.0) or error_holder:
+            buffers.pop(index, None)
+            continue
+
+
 
     live = [(i, n) for i, n in candidates if i in buffers]
     print(f"Recording from {len(live)} devices — SPEAK NORMALLY for {SECONDS:.0f} seconds...")

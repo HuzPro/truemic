@@ -116,9 +116,17 @@ def detect_loop(state: ReceiverState, prof: profile_store.Profile, in_device: in
     try:
         import psutil
 
-        psutil.Process().nice(psutil.ABOVE_NORMAL_PRIORITY_CLASS)
+        p = psutil.Process()
+        if hasattr(psutil, "ABOVE_NORMAL_PRIORITY_CLASS"):
+            p.nice(psutil.ABOVE_NORMAL_PRIORITY_CLASS)
+        elif hasattr(p, "nice"):
+            try:
+                p.nice(-5)
+            except Exception:
+                pass
     except Exception:
         pass
+
     signing_key = prof.signing_key
     public_key = base64.b64encode(
         signing_key.public_key().public_bytes(

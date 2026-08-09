@@ -193,9 +193,17 @@ def _realtime_hygiene() -> None:
     try:
         import psutil
 
-        psutil.Process().nice(psutil.ABOVE_NORMAL_PRIORITY_CLASS)
+        p = psutil.Process()
+        if hasattr(psutil, "ABOVE_NORMAL_PRIORITY_CLASS"):
+            p.nice(psutil.ABOVE_NORMAL_PRIORITY_CLASS)
+        elif hasattr(p, "nice"):
+            try:
+                p.nice(-5)
+            except Exception:
+                pass
     except Exception:
         pass  # priority is best-effort; HIGH would starve a 2-core shell
+
 
 
 def print_status(
