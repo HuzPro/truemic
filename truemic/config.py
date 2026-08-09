@@ -26,7 +26,7 @@ COMFORT_NOISE_DBFS = -55.0  # unwatermarked, post-gate; field floors are -12..-3
 DEFAULT_THRESHOLD_EAGLE = 0.50
 DEFAULT_THRESHOLD_ECAPA = 0.40  # cosine similarity; genuine same-speaker sits ~0.6-0.8
 DEFAULT_THRESHOLD_CAMPP = 0.55  # measured: genuine 0.82+-0.07, impostor 0.38+-0.07
-ENROLL_TOP_K = 5  # score = mean cosine of the K best-matching enrollment chunks
+ENROLL_TOP_K = 8  # score = mean cosine of the K best-matching enrollment chunks
 ENROLL_MAX_FLATNESS = 0.3  # spectral flatness: voiced speech ~0.05-0.2, breath/hiss ~0.5+
 ENROLL_ENERGY_PERCENTILE = 20  # drop the quietest 'voiced' frames (mostly breath)
 ENROLL_SELF_TEST_MARGIN = 0.12  # held-out own audio must beat white noise by this much
@@ -38,7 +38,7 @@ MIC_MATCH_THRESHOLD = 0.90  # cosine of quiet-frame log spectra; same mic sits ~
 MIC_ZERO_FRACTION_ALARM = 0.8  # this much bit-exact zero input = injected source
 
 WM_CHUNK_SECONDS = 0.5
-WM_ALPHA = 3.0  # watermark strength; published sweep: 1.0 fragile, 3.0 robust, 5.0 audible risk
+WM_ALPHA = 4.0  # watermark strength; published sweep: 1.0 fragile, 3.0 robust, 5.0 audible risk
 WM_TARGET_RMS = 0.1  # receiver-side level normalization (shipped detector does none)
 TOKEN_SLOT_SECONDS = 8.0  # longer slots halve detect-window slot straddles
 TOKEN_TOLERANCE = 1  # slots each side; covers clock skew + detection latency

@@ -120,7 +120,7 @@ def enroll_embedding_engine(
         # average the conditions WITHIN a chunk: robustness without leaving
         # pure-noise/reverb rows for an impostor to cherry-pick under top-K
         variants = np.stack(
-            [embed(c), embed(add_noise_at_snr(c, 10.0, rng)), embed(add_synthetic_reverb(c, rng))]
+            [embed(c), embed(add_noise_at_snr(c, 15.0, rng)), embed(add_noise_at_snr(c, 10.0, rng)), embed(add_noise_at_snr(c, 5.0, rng)), embed(add_synthetic_reverb(c, rng))]
         ).mean(axis=0)
         rows.append(variants / np.linalg.norm(variants))
     embeddings = _reject_outliers(np.stack(rows))
@@ -192,7 +192,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Enroll the TrueMic speaker")
     parser.add_argument("--name", required=True)
     parser.add_argument("--engine", choices=["auto", "campp", "ecapa", "eagle"], default="auto")
-    parser.add_argument("--seconds", type=float, default=40.0)
+    parser.add_argument("--seconds", type=float, default=60.0)
     parser.add_argument("--in", dest="input", default=None, help="input device name substring")
     parser.add_argument("--dir", dest="profile_dir", default=config.DEFAULT_PROFILE_DIR)
     parser.add_argument(
