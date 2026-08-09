@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrueMic — Verified Human</title>
+<style>
+  :root {
+    --bg: #0b0e14; --card: #131826; --text: #e8ecf4; --dim: #8b93a7;
+    --green: #2dd47f; --red: #ff4d5e; --amber: #f5b83d; --grey: #4a5164;
+  }
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(1200px 700px at 50% -10%, #182038, var(--bg));
+    color: var(--text); font-family: "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh; display: grid; place-items: center;
+  }
+  .card {
+    background: var(--card); border: 1px solid #232c44; border-radius: 20px;
+    padding: 40px 56px 32px; text-align: center; width: min(92vw, 480px);
+    box-shadow: 0 24px 80px rgba(0,0,0,.5);
+  }
+  /* Loud on loss, quiet in presence: the banner only exists when trust drops. */
+  .alarm {
+    display: none; background: var(--red); color: #16040a; font-weight: 700;
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 22px;
+    letter-spacing: .04em; font-size: 14px;
+  }
+  .lost .alarm { display: block; animation: slam .35s ease-out; }
+  .lost.fresh .alarm { animation: slam .35s ease-out, blink 1s steps(2) 3; }
+  @keyframes slam { from { transform: scale(1.25); } to { transform: scale(1); } }
+  @keyframes blink { 50% { filter: brightness(1.6); } }
+  .ring {
+    width: 150px; height: 150px; border-radius: 50%; margin: 0 auto 24px;
+    display: grid; place-items: center; font-size: 62px;
+    border: 4px solid var(--grey); transition: border-color .4s, box-shadow .4s;
+  }
+  .verified .ring {
+    border-color: var(--green);
+    animation: pulse 2s infinite;
+  }
+  .lost .ring { border-color: var(--red); }
+  .origin .ring { border-color: var(--amber); }
+  .origin h1 { color: var(--amber); }
+  .origin .bar > div { background: var(--amber); }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(45,212,127,.45); }
+    70% { box-shadow: 0 0 0 26px rgba(45,212,127,0); }
+    100% { box-shadow: 0 0 0 0 rgba(45,212,127,0); }
+  }
+  h1 { font-size: 25px; letter-spacing: .06em; text-transform: uppercase; }
+  .verified h1 { color: var(--green); }
+  .lost h1 { color: var(--red); }
+  .idle h1 { color: var(--dim); }
+  .name { font-size: 20px; margin-top: 8px; }
+  .reason { color: var(--dim); font-size: 13px; margin-top: 14px; min-height: 1.4em; }
+  .bar { height: 6px; background: #202844; border-radius: 3px; margin-top: 18px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--green); transition: width .3s; }
+  .lost .bar > div { background: var(--red); }
+  /* live-changing row: a badge that visibly ticks can't be screenshot-forged
+     and resists habituation */
+  .live { display: flex; justify-content: space-between; color: var(--dim);
+          font-size: 12px; margin-top: 16px; font-variant-numeric: tabular-nums; }
+  details { margin-top: 20px; text-align: left; }
+  summary { color: var(--dim); font-size: 12px; cursor: pointer; text-align: center; }
+  pre {
+    font-size: 10px; color: #9fb0d0; background: #0d1120; border-radius: 8px;
+    padding: 10px; margin-top: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+  }
+  .tag { font-size: 11px; color: var(--dim); margin-top: 24px; letter-spacing: .12em; }
+</style>
+</head>
+<body>
+  <main class="card idle" id="card">
+    <div class="alarm" id="alarm">VERIFICATION LOST</div>
+    <div class="ring" id="ring">🎙️</div>
+    <h1 id="status">Listening</h1>
+    <div class="name" id="name">—</div>
+    <div class="reason" id="reason">no audio analysed yet</div>
+    <div class="bar"><div id="confidence"></div></div>
+    <div class="live">
+      <span id="verifiedAgo">–</span>
+      <span id="clock">–</span>
+    </div>
+    <details>
+      <summary>signed attestation</summary>
+      <pre id="attestation">none yet</pre>
+      <button id="verifyBtn" style="margin-top:8px;width:100%;padding:8px;border-radius:8px;
+        border:1px solid #232c44;background:#0d1120;color:#9fb0d0;cursor:pointer;font-size:12px">
+        verify Ed25519 signature in this browser
+      </button>
+      <div id="verifyResult" style="font-size:12px;margin-top:6px;text-align:center;min-height:1.2em"></div>
+    </details>
+    <div class="tag">TRUEMIC · THE VOICE, ATTESTED</div>
+  </main>
+<script>
+  const el = (id) => document.getElementById(id);
+  let lostAt = null;
+  setInterval(() => { el("clock").textContent = new Date().toLocaleTimeString(); }, 250);
+
+  const events = new EventSource("/events");
+  events.onmessage = (e) => {
+    const s = JSON.parse(e.data);
+    const card = el("card");
+    let cls;
+    if (s.verified) { cls = "card verified"; lostAt = null; }
+    else if (s.wm_present) { cls = "card origin"; lostAt = null; }
+    else if (s.ever_verified) {
+      if (lostAt === null) lostAt = new Date();
+      cls = "card lost" + ((s.seconds_since_change ?? 99) < 4 ? " fresh" : "");
+    } else cls = "card idle";
+    card.className = cls;
+
+    el("ring").textContent = s.verified ? "✓" : s.wm_present ? "◔"
+      : (s.ever_verified ? "✕" : "🎙️");
+    el("status").textContent = s.verified ? "Verified Human"
+      : s.wm_present ? "Verified Origin"
+      : s.ever_verified ? "Not Verified" : "Listening";
+    el("name").textContent = s.verified ? s.speaker
+      : s.wm_present ? `${s.speaker}'s gate signed this — freshness unconfirmed`
+      : "unknown speaker";
+    el("alarm").textContent = "VERIFICATION LOST" +
+      (lostAt ? " · " + lostAt.toLocaleTimeString() : "");
+    el("reason").textContent = s.reason;
+    el("confidence").style.width = Math.round(s.wm_probability * 100) + "%";
+    el("verifiedAgo").textContent = s.seconds_since_verified == null ? "never verified"
+      : `watermark ${Math.round(s.wm_probability * 100)}% · verified ${s.seconds_since_verified}s ago`;
+    if (s.attestation)
+      el("attestation").textContent = JSON.stringify(s.attestation, null, 2);
+  };
+  events.onerror = () => { el("card").className = "card idle"; el("reason").textContent = "receiver offline"; };
+
+  // Client-side proof: rebuild the signed payload, import the public key,
+  // check the Ed25519 signature with WebCrypto — the page trusts math, not us.
+  let lastAttestation = null;
+  events.addEventListener("message", (e) => {
+    const s = JSON.parse(e.data);
+    if (s.attestation) lastAttestation = s.attestation;
+  });
+  const b64 = (str) => Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
+  el("verifyBtn").onclick = async () => {
+    const out = el("verifyResult");
+    if (!lastAttestation) { out.textContent = "no attestation yet"; return; }
+    try {
+      const { signature, public_key, ...payload } = lastAttestation;
+      const canonical = JSON.stringify(payload, Object.keys(payload).sort());
+      const key = await crypto.subtle.importKey(
+        "raw", b64(public_key), { name: "Ed25519" }, false, ["verify"]);
+      const ok = await crypto.subtle.verify(
+        { name: "Ed25519" }, key, b64(signature), new TextEncoder().encode(canonical));
+      out.textContent = ok ? "✓ signature valid (verified client-side)" : "✗ SIGNATURE INVALID";
+      out.style.color = ok ? "var(--green)" : "var(--red)";
+    } catch (err) {
+      out.textContent = "WebCrypto Ed25519 unavailable: " + err.message;
+    }
+  };
+</script>
+</body>
+</html>

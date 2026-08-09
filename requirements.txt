@@ -1,0 +1,15 @@
+numpy
+scipy
+sounddevice
+soxr
+torch
+torchaudio
+audioseal
+silero-vad
+onnxruntime
+speechbrain
+pveagle
+cryptography
+psutil
+soundfile
+pytest

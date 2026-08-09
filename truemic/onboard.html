@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrueMic</title>
+<style>
+  :root { --bg:#0b0e14; --card:#131826; --line:#232c44; --text:#e8ecf4; --dim:#8b93a7;
+          --green:#2dd47f; --red:#ff4d5e; --amber:#f5b83d; }
+  * { margin:0; box-sizing:border-box; }
+  body { background:radial-gradient(1200px 700px at 50% -10%, #182038, var(--bg));
+         color:var(--text); font-family:"Segoe UI",system-ui,sans-serif;
+         min-height:100vh; display:grid; place-items:center; padding:24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:20px;
+          padding:40px 48px; width:min(94vw,640px); box-shadow:0 24px 80px rgba(0,0,0,.5); }
+  h1 { font-size:22px; letter-spacing:.05em; }
+  h1 span { color:var(--green); }
+  .sub { color:var(--dim); font-size:14px; margin-top:6px; }
+  .step { display:none; }
+  .step.active { display:block; }
+  button { background:var(--green); color:#06180e; border:none; border-radius:10px;
+           padding:12px 22px; font-size:15px; font-weight:600; cursor:pointer; margin-top:18px; }
+  button.ghost { background:transparent; color:var(--dim); border:1px solid var(--line); }
+  button:disabled { opacity:.4; cursor:default; }
+  .meter { height:14px; background:#202844; border-radius:7px; overflow:hidden; margin-top:16px; }
+  .meter > div { height:100%; width:0; background:var(--green); transition:width .08s; }
+  .progress { height:5px; background:#202844; border-radius:3px; overflow:hidden; margin-top:8px; }
+  .progress > div { height:100%; width:0; background:var(--dim); }
+  .passage { background:#0d1120; border:1px solid var(--line); border-radius:12px;
+             padding:18px 20px; font-size:17px; line-height:1.65; margin-top:16px; }
+  .chip { display:inline-block; background:#0d1120; border:1px solid var(--line);
+          border-radius:999px; padding:5px 14px; font-size:13px; color:var(--dim); margin:12px 6px 0 0; }
+  .chip.done { color:var(--green); border-color:var(--green); }
+  .chip.now { color:var(--text); border-color:var(--text); }
+  .mics { margin-top:14px; }
+  .mic { border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin-top:8px;
+         cursor:pointer; font-size:14px; display:flex; justify-content:space-between; }
+  .mic.sel { border-color:var(--green); }
+  .mic .tag { color:var(--dim); font-size:12px; }
+  input { background:#0d1120; border:1px solid var(--line); border-radius:10px; color:var(--text);
+          padding:11px 14px; font-size:15px; width:100%; margin-top:14px; }
+  .result { margin-top:16px; font-size:14px; line-height:1.7; color:var(--dim); }
+  .ok { color:var(--green); } .bad { color:var(--red); } .warn { color:var(--amber); }
+  /* live dashboard */
+  .tile { border-radius:16px; padding:34px 20px; text-align:center; margin-top:18px;
+          border:1px solid var(--line); transition:background .3s; }
+  .tile h2 { font-size:26px; letter-spacing:.05em; }
+  .tile .why { color:var(--dim); font-size:13px; margin-top:8px; min-height:1.2em; }
+  .tile.pass { background:rgba(45,212,127,.08); border-color:var(--green); }
+  .tile.pass h2 { color:var(--green); }
+  .tile.block { background:rgba(255,77,94,.10); border-color:var(--red); }
+  .tile.block h2 { color:var(--red); }
+  .tile.idle h2 { color:var(--dim); }
+  .scorebar { position:relative; height:12px; background:#202844; border-radius:6px; margin-top:20px; }
+  .scorebar .fill { height:100%; border-radius:6px; background:var(--dim); width:0; transition:width .2s; }
+  .scorebar .mark { position:absolute; top:-4px; width:2px; height:20px; background:var(--text); }
+  .stats { display:flex; justify-content:space-between; color:var(--dim); font-size:13px; margin-top:14px; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>True<span>Mic</span></h1>
+  <div class="sub" id="sub">Only your voice gets through.</div>
+
+  <!-- STEP 1: mic -->
+  <section class="step active" id="s1">
+    <p class="result">First, let's find your best microphone. Click the button, then
+      <b>speak normally for 5 seconds</b> while it listens on every input.</p>
+    <button id="micBtn">Find my microphone</button>
+    <div class="mics" id="mics"></div>
+    <button id="micUse" style="display:none">Use this microphone</button>
+  </section>
+
+  <!-- STEP 2: enrollment -->
+  <section class="step" id="s2">
+    <p class="result">Read this passage aloud <b>three times</b>. Each pass teaches
+      TrueMic a different side of your voice.</p>
+    <div>
+      <span class="chip" id="c1">1 · Natural</span>
+      <span class="chip" id="c2">2 · A bit faster</span>
+      <span class="chip" id="c3">3 · Louder, like presenting</span>
+    </div>
+    <div class="passage">When the sunlight strikes raindrops in the air, they act as a
+      prism and form a rainbow. The rainbow is a division of white light into many
+      beautiful colors. These take the shape of a long round arch, with its path high
+      above, and its two ends apparently beyond the horizon.</div>
+    <div class="meter"><div id="meter"></div></div>
+    <div class="progress"><div id="prog"></div></div>
+    <button id="recBtn">Start pass 1</button>
+    <input id="name" placeholder="Your name" value="" style="display:none">
+    <button id="buildBtn" style="display:none">Build my voiceprint</button>
+    <div class="result" id="enrollResult"></div>
+  </section>
+
+  <!-- STEP 3: impostor (optional) -->
+  <section class="step" id="s3">
+    <p class="result">Optional but recommended: have a <b>friend read the same passage</b>
+      (or play a loud video of someone talking right at the mic) for 20 seconds. TrueMic
+      measures the gap between you and not-you and tunes itself to it.</p>
+    <div class="meter"><div id="meter2"></div></div>
+    <div class="progress"><div id="prog2"></div></div>
+    <button id="impBtn">Record the impostor</button>
+    <button class="ghost" id="skipBtn">Skip</button>
+    <div class="result" id="impResult"></div>
+    <button id="goLiveBtn" style="display:none">Go live</button>
+  </section>
+
+  <!-- STEP 4: live -->
+  <section class="step" id="s4">
+    <div class="tile idle" id="tile">
+      <h2 id="tstate">STARTING…</h2>
+      <div class="why" id="twhy"></div>
+      <div class="scorebar"><div class="fill" id="fill"></div><div class="mark" id="mark"></div></div>
+      <div class="stats">
+        <span id="mode">–</span>
+        <span id="blocked">blocked: 0.0s</span>
+        <span id="mic">mic ✓</span>
+      </div>
+    </div>
+    <button class="ghost" id="stopBtn">Stop</button>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const post = async (path, body) =>
+  (await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"},
+                      body:JSON.stringify(body||{})})).json();
+const show = (id) => { document.querySelectorAll(".step").forEach(s=>s.classList.remove("active"));
+                       $(id).classList.add("active"); };
+let device = null, pass = 1, openT = 0.85;
+
+$("micBtn").onclick = async () => {
+  $("micBtn").disabled = true; $("micBtn").textContent = "Listening — speak now…";
+  const {rows} = await post("/api/miccheck");
+  $("micBtn").style.display = "none";
+  $("mics").innerHTML = "";
+  rows.forEach((r,i) => {
+    const d = document.createElement("div");
+    d.className = "mic" + (i===0 ? " sel" : "");
+    d.innerHTML = `<span>${r.name}</span><span class="tag">${r.good ? "✓ good" : "weak"} · level ${r.rms}</span>`;
+    d.onclick = () => { document.querySelectorAll(".mic").forEach(m=>m.classList.remove("sel"));
+                        d.classList.add("sel"); device = r.index; };
+    $("mics").appendChild(d);
+  });
+  if (rows.length) { device = rows[0].index; $("micUse").style.display = "inline-block"; }
+  else { $("micBtn").disabled = false; $("micBtn").style.display="inline-block";
+         $("micBtn").textContent = "No live mic found — try again"; }
+};
+$("micUse").onclick = () => show("s2");
+
+async function meterLoop(meterEl, progEl) {
+  let sawActive = false, waited = 0;
+  for (;;) {
+    const l = await (await fetch("/api/level")).json();
+    meterEl.style.width = Math.min(100, l.value * 300) + "%";
+    progEl.style.width = (l.seconds ? l.elapsed / l.seconds * 100 : 0) + "%";
+    if (l.active) sawActive = true;
+    else if (sawActive || waited > 3000) return;  // slow device open ≠ done
+    await new Promise(r => setTimeout(r, 120));
+    waited += 120;
+  }
+}
+$("recBtn").onclick = async () => {
+  $("recBtn").disabled = true; $("recBtn").textContent = "Recording — read the passage…";
+  $("c"+pass).classList.add("now");
+  const rec = post("/api/record", {label:"pass"+pass, seconds:25, device});
+  await new Promise(r => setTimeout(r, 300)); await meterLoop($("meter"), $("prog"));
+  const r = await rec;
+  $("c"+pass).classList.remove("now");
+  if (r.error || r.rms < 0.005) {   // a silent take must NOT advance the wizard
+    $("enrollResult").innerHTML =
+      `<span class="bad">${r.error || "Barely heard you (level " + r.rms + ") — closer and louder, please."}</span>`;
+    $("recBtn").disabled = false; $("recBtn").textContent = "Retry pass " + pass;
+    return;
+  }
+  $("enrollResult").textContent = "";
+  $("c"+pass).classList.add("done");
+  pass += 1;
+  if (pass <= 3) { $("recBtn").disabled = false; $("recBtn").textContent = "Start pass " + pass; }
+  else { $("recBtn").style.display = "none"; $("name").style.display = "block";
+         $("buildBtn").style.display = "inline-block"; }
+};
+$("buildBtn").onclick = async () => {
+  $("buildBtn").disabled = true; $("buildBtn").textContent = "Building…";
+  const r = await post("/api/enroll", {name: $("name").value || "You"});
+  if (r.error) { $("enrollResult").innerHTML = `<span class="bad">${r.error}</span>`;
+                 $("buildBtn").disabled = false; $("buildBtn").textContent = "Build my voiceprint"; return; }
+  openT = r.open;
+  $("enrollResult").innerHTML =
+    (r.ok ? `<span class="ok">✓ Voiceprint built.</span>` :
+            `<span class="warn">⚠ Weak signal — it may work, but consider re-recording louder.</span>`)
+    + ` Your voice: ${r.genuine_mean} ± ${r.genuine_sd} · gate opens at ${r.open}`;
+  setTimeout(() => show("s3"), 1400);
+};
+
+$("impBtn").onclick = async () => {
+  $("impBtn").disabled = true; $("impBtn").textContent = "Recording the impostor…";
+  const rec = post("/api/record", {label:"impostor", seconds:20, device});
+  await new Promise(r => setTimeout(r, 300)); await meterLoop($("meter2"), $("prog2"));
+  await rec;
+  const r = await post("/api/impostor");
+  if (r.error) { $("impResult").innerHTML = `<span class="bad">${r.error}</span>`;
+                 $("impBtn").disabled = false; $("impBtn").textContent = "Record the impostor"; return; }
+  openT = r.open;
+  $("impResult").innerHTML =
+    r.verdict === "tuned" ? `<span class="ok">✓ Separation ${r.separation} — gate tuned to it.</span>` :
+    r.verdict === "thin"  ? `<span class="warn">⚠ Separation ${r.separation} is thin. Keeping default
+                             tuning — a loud impostor may flicker green briefly before being cut.</span>` :
+                            `<span class="warn">⚠ No separation measured (${r.separation}) — that take may
+                             be too quiet or too similar. You can retry, or continue with defaults.</span>`;
+  $("impBtn").disabled = false; $("impBtn").textContent = "Retry impostor";
+  $("goLiveBtn").style.display = "inline-block";
+};
+$("skipBtn").onclick = () => goLive();
+$("goLiveBtn").onclick = () => goLive();
+
+async function goLive() {
+  show("s4");
+  const r = await post("/api/start", {});
+  if (r.error && r.error !== "already running") {
+    $("tstate").textContent = "FAILED TO START"; $("twhy").textContent = r.error; return;
+  }
+  $("mode").textContent = r.mode === "virtual-mic" ? "→ virtual mic (CABLE)" : "monitor mode";
+  $("mark").style.left = "71%";  // where openT sits on the [openT-0.25, openT+0.1] scale
+  poll();
+}
+async function poll() {
+  let sawRunning = false, graceMs = 0;
+  for (;;) {
+    const s = await (await fetch("/api/state")).json();
+    const tile = $("tile");
+    if (s.starting || (!s.running && !sawRunning && graceMs < 8000 && !s.error)) {
+      $("tstate").textContent = "STARTING…";                    // streams take a
+      $("twhy").textContent = "opening audio streams";          // few seconds
+      await new Promise(r => setTimeout(r, 400)); graceMs += 400; continue;
+    }
+    if (s.running) sawRunning = true;
+    if (!s.running) { $("tstate").textContent = "STOPPED";
+                      if (s.error) $("twhy").textContent = s.error; return; }
+    const talking = s.voiced >= 0.4;
+    if (s.open) { tile.className = "tile pass"; $("tstate").textContent = "YOUR VOICE — PASSING";
+                  $("twhy").textContent = "verified " + (s.window_score ?? ""); }
+    else if (talking) { tile.className = "tile block"; $("tstate").textContent = "BLOCKED — NOT YOUR VOICE";
+                        $("twhy").textContent = "score " + (s.window_score ?? "–") + " below " + openT; }
+    else { tile.className = "tile idle"; $("tstate").textContent = "LISTENING";
+           $("twhy").textContent = "silence"; }
+    if (s.window_score != null) {
+      const lo = openT - 0.25, hi = openT + 0.1;
+      const frac = Math.max(0, Math.min(1, (s.window_score - lo) / (hi - lo)));
+      $("fill").style.width = (frac * 100) + "%";
+      $("fill").style.background = s.open ? "var(--green)" : "var(--red)";
+    } else { $("fill").style.width = "0"; }
+    $("blocked").textContent = "blocked: " + s.muted_voiced_seconds + "s";
+    $("mic").textContent = s.injected ? "INJECTED SOURCE?" : (s.mic_alarm ? "mic mismatch" : "mic ✓");
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+$("stopBtn").onclick = async () => { await post("/api/stop"); $("tstate").textContent = "STOPPED"; };
+
+(async () => {
+  const s = await (await fetch("/api/status")).json();
+  if (s.enrolled) {
+    openT = s.open;
+    $("sub").textContent = `Welcome back, ${s.name}.`;
+    const b = document.createElement("button");
+    b.textContent = "Skip setup — go live"; b.className = "ghost";
+    b.onclick = () => goLive();
+    $("s1").appendChild(b);
+  }
+})();
+</script>
+</body>
+</html>
