@@ -177,7 +177,7 @@ Zoom runs locally. Demo-day prep for the laptop: AC power,
 - **Eagle** — upside, never the plan: needs internet key validation
   (`PICOVOICE_ACCESS_KEY`). CAM++ is the budgeted engine.
 - **speechbrain ReduceOp / torch.compile `cl not found` / silero 1-thread trap** — all
-  shimmed in-code (`truemic/__init__.py`, `verify.py`); details in the vault notes.
+  shimmed in-code (`truemic/__init__.py`, `verify.py`).
 
 ## Deliberately not built (and why — judges ask)
 
